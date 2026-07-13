@@ -1,0 +1,17 @@
+{
+  "name": "electron-pi",
+  "version": "1.0.0",
+  "description": "Electron + PI SDK 桌面聊天",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^43.1.0",
+    "electron-builder": "^25.1.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.0"
+  }
+}

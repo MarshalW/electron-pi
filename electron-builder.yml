@@ -1,0 +1,9 @@
+appId: com.electron.pi
+productName: ElectronPi
+directories:
+  output: release
+mac:
+  category: public.app-category.utilities
+  target:
+    - dmg
+  identity: null

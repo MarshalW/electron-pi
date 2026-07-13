@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+<title>Electron Pi</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f0f2f5; height: 100vh; display: flex; flex-direction: column;
+  color: #333; overflow: hidden;
+}
+.hidden { display: none !important; }
+
+/* Setup */
+#setup-view {
+  max-width: 440px; margin: auto; padding: 40px 32px;
+  background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.08);
+}
+#setup-view h1 { font-size: 22px; margin-bottom: 24px; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #555; }
+.form-group input {
+  width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #ddd;
+  border-radius: 8px; outline: none; transition: border .2s;
+}
+.form-group input:focus { border-color: #4a90d9; }
+.btn-primary {
+  width: 100%; padding: 11px; font-size: 15px; font-weight: 600;
+  background: #4a90d9; color: #fff; border: none; border-radius: 8px;
+  cursor: pointer; transition: background .2s;
+}
+.btn-primary:hover { background: #357abd; }
+.btn-primary:disabled { background: #aaa; cursor: not-allowed; }
+.error-msg { color: #e74c3c; font-size: 13px; margin-top: 8px; }
+
+/* Chat */
+#chat-view { display: flex; flex-direction: column; height: 100vh; }
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px; background: #fff; border-bottom: 1px solid #e8e8e8;
+  -webkit-app-region: drag; flex-shrink: 0;
+}
+header h1 { font-size: 15px; font-weight: 600; }
+header .hint { font-size: 12px; color: #999; -webkit-app-region: no-drag; }
+#messages {
+  flex: 1; overflow-y: auto; padding: 20px; display: flex;
+  flex-direction: column; gap: 12px;
+}
+.msg { max-width: 80%; padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.msg.user { align-self: flex-end; background: #4a90d9; color: #fff; }
+.msg.assistant { align-self: flex-start; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.msg.assistant.streaming { border-left: 3px solid #4a90d9; }
+.msg.tool-call { align-self: flex-start; background: #f8f9fa; font-size: 13px; color: #666; border: 1px solid #e8e8e8; }
+.msg.error { align-self: center; background: #fef0f0; color: #e74c3c; font-size: 13px; border: 1px solid #fde2e2; }
+.typing { align-self: flex-start; color: #999; font-size: 13px; padding: 8px 0; }
+#input-area {
+  display: flex; gap: 8px; padding: 12px 20px; background: #fff;
+  border-top: 1px solid #e8e8e8; flex-shrink: 0;
+}
+#input-area input {
+  flex: 1; padding: 10px 14px; font-size: 14px; border: 1px solid #ddd;
+  border-radius: 8px; outline: none;
+}
+#input-area input:focus { border-color: #4a90d9; }
+#input-area button {
+  padding: 10px 20px; font-size: 14px; font-weight: 600;
+  border: none; border-radius: 8px; cursor: pointer; transition: background .2s;
+}
+#btn-send { background: #4a90d9; color: #fff; }
+#btn-send:hover { background: #357abd; }
+#btn-send:disabled { background: #ccc; }
+#btn-abort { background: #e74c3c; color: #fff; }
+#btn-abort:hover { background: #c0392b; }
+
+/* Modal */
+#reconfig-modal { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.3); }
+.modal-content { position: relative; background: #fff; border-radius: 12px; padding: 32px; width: 420px; box-shadow: 0 4px 24px rgba(0,0,0,.15); }
+.modal-content h2 { font-size: 18px; margin-bottom: 20px; }
+.modal-content .btn-primary { margin-top: 8px; }
+.modal-actions { display: flex; gap: 8px; margin-top: 16px; }
+.modal-actions .btn-primary { flex: 1; }
+#modal-cancel { flex: 1; padding: 11px; font-size: 14px; font-weight: 600; border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer; transition: background .2s; }
+#modal-cancel:hover { background: #f5f5f5; }
+</style>
+</head>
+<body>
+
+<div id="setup-view">
+  <h1>初次配置</h1>
+  <div class="form-group">
+    <label>API Key</label>
+    <input id="input-api-key" type="password" placeholder="sk-...">
+  </div>
+  <div class="form-group">
+    <label>Provider</label>
+    <input id="input-provider" value="deepseek">
+  </div>
+  <div class="form-group">
+    <label>Model</label>
+    <input id="input-model" value="deepseek-v4-flash">
+  </div>
+  <div class="form-group">
+    <label>工作目录 (cwd)</label>
+    <input id="input-cwd" placeholder="~/project">
+  </div>
+  <button class="btn-primary" id="btn-save-config">保存并开始</button>
+  <div id="setup-error" class="error-msg"></div>
+</div>
+
+<div id="chat-view" class="hidden">
+  <header>
+    <h1>Electron Pi</h1>
+    <span class="hint">
+      <span id="session-status">就绪</span>
+      <button id="btn-reconfigure" style="background:none;border:none;color:#4a90d9;cursor:pointer;margin-left:12px;font-size:12px;padding:0;">重新配置</button>
+    </span>
+  </header>
+  <div id="messages"></div>
+  <div id="input-area">
+    <input id="chat-input" type="text" placeholder="输入消息..." disabled>
+    <button id="btn-send" disabled>发送</button>
+    <button id="btn-abort" class="hidden">中止</button>
+  </div>
+
+  <!-- Reconfig Modal -->
+  <div id="reconfig-modal" class="hidden">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-content">
+      <h2>重新配置</h2>
+      <div class="form-group">
+        <label>API Key</label>
+        <input id="modal-api-key" type="password" placeholder="sk-...">
+      </div>
+      <div class="form-group">
+        <label>Provider</label>
+        <input id="modal-provider" value="deepseek">
+      </div>
+      <div class="form-group">
+        <label>Model</label>
+        <input id="modal-model" value="deepseek-v4-flash">
+      </div>
+      <div class="form-group">
+        <label>工作目录 (cwd)</label>
+        <input id="modal-cwd" placeholder="~/project">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary" id="modal-save">保存并重连</button>
+        <button id="modal-cancel">取消</button>
+      </div>
+      <div id="modal-error" class="error-msg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id)
+const setupView = $('setup-view')
+const chatView = $('chat-view')
+const messagesEl = $('messages')
+const chatInput = $('chat-input')
+const btnSend = $('btn-send')
+const btnAbort = $('btn-abort')
+const sessionStatus = $('session-status')
+
+let streaming = false
+let streamingMsgEl = null
+let unsubscribe = null
+
+function addMessage(role, text, extra) {
+  const el = document.createElement('div')
+  el.className = 'msg ' + role + (extra?.cls || '')
+  if (extra?.streaming) streamingMsgEl = el
+  el.textContent = text
+  messagesEl.appendChild(el)
+  el.scrollIntoView({ behavior: 'smooth' })
+  return el
+}
+
+function updateStreamingMessage(text) {
+  if (streamingMsgEl) streamingMsgEl.textContent = text
+}
+
+function finalizeStreaming() {
+  if (streamingMsgEl) {
+    streamingMsgEl.classList.remove('streaming')
+    streamingMsgEl = null
+  }
+}
+
+function setStreamingState(active) {
+  streaming = active
+  chatInput.disabled = active
+  btnSend.disabled = active
+  btnSend.classList.toggle('hidden', active)
+  btnAbort.classList.toggle('hidden', !active)
+  sessionStatus.textContent = active ? 'AI 回复中...' : '就绪'
+}
+
+function extractText(msg) {
+  if (typeof msg.content === 'string') return msg.content
+  if (Array.isArray(msg.content)) {
+    return msg.content
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('\n')
+  }
+  return ''
+}
+
+async function init() {
+  try {
+    const config = await window.pi.getConfig()
+    if (config && config.apiKey && config.cwd) {
+      await switchToChat(config)
+      return
+    }
+    if (config) {
+      $('input-api-key').value = config.apiKey || ''
+      $('input-provider').value = config.provider || 'deepseek'
+      $('input-model').value = config.model || 'deepseek-v4-flash'
+      $('input-cwd').value = config.cwd || ''
+    }
+  } catch (err) {
+    console.error('init failed:', err)
+  }
+}
+
+$('btn-save-config').addEventListener('click', async () => {
+  const config = {
+    provider: $('input-provider').value.trim(),
+    model: $('input-model').value.trim(),
+    apiKey: $('input-api-key').value.trim(),
+    cwd: $('input-cwd').value.trim() || $('input-cwd').placeholder,
+  }
+  if (!config.apiKey) {
+    $('setup-error').textContent = '请输入 API Key'
+    return
+  }
+  if (!config.cwd) {
+    $('setup-error').textContent = '请输入工作目录'
+    return
+  }
+  $('setup-error').textContent = ''
+  $('btn-save-config').disabled = true
+  $('btn-save-config').textContent = '保存中...'
+  try {
+    await window.pi.saveConfig(config)
+    await switchToChat(config)
+    $('btn-save-config').textContent = '保存并开始'
+  } catch (err) {
+    $('setup-error').textContent = '操作失败: ' + (err.message || err)
+    $('btn-save-config').disabled = false
+    $('btn-save-config').textContent = '保存并开始'
+  }
+})
+
+async function switchToChat(config) {
+  setupView.classList.add('hidden')
+  chatView.classList.remove('hidden')
+  sessionStatus.textContent = '正在连接...'
+  let result
+  try {
+    result = await window.pi.createSession(config)
+  } catch (err) {
+    addMessage('error', '连接失败: ' + (err.message || err))
+    sessionStatus.textContent = '连接失败'
+    return
+  }
+  if (!result.ok) {
+    addMessage('error', '连接失败: ' + result.error)
+    sessionStatus.textContent = '连接失败'
+    return
+  }
+  sessionStatus.textContent = '就绪'
+  chatInput.disabled = false
+  btnSend.disabled = false
+  chatInput.focus()
+
+  unsubscribe = window.pi.onEvent((event) => {
+    switch (event.type) {
+      case 'agent_session_ready':
+        sessionStatus.textContent = '就绪'
+        break
+      case 'agent_start':
+        setStreamingState(true)
+        break
+      case 'agent_end':
+        setStreamingState(false)
+        finalizeStreaming()
+        break
+      case 'message_start':
+        break
+      case 'message_update': {
+        if (event.message?.role !== 'assistant') break
+        const text = extractText(event.message || event)
+        if (text) {
+          if (!streamingMsgEl) {
+            addMessage('assistant', text, { cls: ' streaming', streaming: true })
+          } else {
+            updateStreamingMessage(text)
+          }
+        }
+        break
+      }
+      case 'message_end': {
+        const text = extractText(event.message || event)
+        if (event.message?.role === 'user') break
+        if (streamingMsgEl) {
+          if (text) updateStreamingMessage(text)
+          finalizeStreaming()
+        } else if (text) {
+          addMessage('assistant', text)
+        }
+        break
+      }
+      case 'tool_execution_start':
+        addMessage('tool-call', '🔧 执行: ' + (event.toolName || 'tool'))
+        break
+      case 'prompt_error':
+        addMessage('error', '错误: ' + (event.errorMessage || '未知错误'))
+        setStreamingState(false)
+        finalizeStreaming()
+        break
+    }
+  })
+}
+
+function showSetup() {
+  setupView.classList.remove('hidden')
+  chatView.classList.add('hidden')
+  if (unsubscribe) { unsubscribe(); unsubscribe = null }
+  $('btn-save-config').disabled = false
+  $('btn-save-config').textContent = '保存并开始'
+}
+
+btnSend.addEventListener('click', sendMessage)
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) sendMessage()
+})
+
+async function sendMessage() {
+  const text = chatInput.value.trim()
+  if (!text || streaming) return
+  chatInput.value = ''
+  addMessage('user', text)
+  try {
+    await window.pi.sendMessage(text)
+  } catch (err) {
+    addMessage('error', '发送失败: ' + (err.message || err))
+  }
+}
+
+btnAbort.addEventListener('click', async () => {
+  await window.pi.abort()
+  setStreamingState(false)
+  finalizeStreaming()
+})
+
+$('btn-reconfigure').addEventListener('click', async () => {
+  const config = await window.pi.getConfig()
+  $('modal-api-key').value = config?.apiKey || ''
+  $('modal-provider').value = config?.provider || 'deepseek'
+  $('modal-model').value = config?.model || 'deepseek-v4-flash'
+  $('modal-cwd').value = config?.cwd || ''
+  $('modal-error').textContent = ''
+  $('reconfig-modal').classList.remove('hidden')
+  $('modal-api-key').focus()
+})
+
+function closeModal() {
+  $('reconfig-modal').classList.add('hidden')
+}
+
+$('modal-save').addEventListener('click', async () => {
+  const config = {
+    provider: $('modal-provider').value.trim(),
+    model: $('modal-model').value.trim(),
+    apiKey: $('modal-api-key').value.trim(),
+    cwd: $('modal-cwd').value.trim() || $('modal-cwd').placeholder,
+  }
+  if (!config.apiKey) {
+    $('modal-error').textContent = '请输入 API Key'
+    return
+  }
+  if (!config.cwd) {
+    $('modal-error').textContent = '请输入工作目录'
+    return
+  }
+  $('modal-error').textContent = ''
+  $('modal-save').disabled = true
+  $('modal-save').textContent = '保存中...'
+  try {
+    await window.pi.abort()
+    await window.pi.saveConfig(config)
+    closeModal()
+    await switchToChat(config)
+  } catch (err) {
+    $('modal-error').textContent = '操作失败: ' + (err.message || err)
+  }
+  $('modal-save').disabled = false
+  $('modal-save').textContent = '保存并重连'
+})
+
+$('modal-cancel').addEventListener('click', closeModal)
+$('modal-backdrop').addEventListener('click', closeModal)
+
+init()
+</script>
+</body>
+</html>
