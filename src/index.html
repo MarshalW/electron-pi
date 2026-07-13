@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
 <title>Electron Pi</title>
+<script src="vendor/marked.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -52,8 +53,27 @@ header .hint { font-size: 12px; color: #999; -webkit-app-region: no-drag; }
 .msg.user { align-self: flex-end; background: #4a90d9; color: #fff; }
 .msg.assistant { align-self: flex-start; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .msg.assistant.streaming { border-left: 3px solid #4a90d9; }
-.msg.tool-call { align-self: flex-start; background: #f8f9fa; font-size: 13px; color: #666; border: 1px solid #e8e8e8; }
+.msg.assistant > * { max-width: 100%; box-sizing: border-box; }
+.msg.assistant .assistant-text { overflow-wrap: break-word; word-break: break-word; }
+.msg.assistant ul, .msg.assistant ol { padding-left: 20px; margin: 4px 0; max-width: 100%; }
+.msg.assistant li { word-break: break-word; overflow-wrap: break-word; }
+.msg.assistant p { margin: 4px 0; }
+.msg.assistant pre { overflow-x: auto; }
 .msg.error { align-self: center; background: #fef0f0; color: #e74c3c; font-size: 13px; border: 1px solid #fde2e2; }
+.tool-block { margin: 4px 0 14px 0; border: 1px solid rgba(34,197,94,0.25); border-radius: 6px; overflow: hidden; font-size: 12px; }
+.tool-block.error { border-color: rgba(248,113,113,0.45); }
+.tool-header { padding: 6px 10px; background: rgba(34,197,94,0.04); display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.tool-header:hover { background: rgba(34,197,94,0.08); }
+.tool-header::before { content: '▶'; font-size: 9px; color: #999; transition: transform .15s; flex-shrink: 0; }
+.tool-header.expanded::before { transform: rotate(90deg); }
+.tool-name { color: #16a34a; font-family: Menlo, monospace; font-weight: 600; font-size: 12px; flex-shrink: 0; }
+.tool-block.error .tool-name { color: #f87171; }
+.tool-args { color: #666; font-family: Menlo, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.tool-duration { color: #999; font-size: 11px; font-family: Menlo, monospace; flex-shrink: 0; }
+.tool-body { border-top: 1px solid rgba(34,197,94,0.2); }
+.tool-body.hidden { display: none; }
+.tool-args-full { margin: 0; padding: 8px 10px; background: #fafafa; font-size: 11px; font-family: Menlo, monospace; color: #555; white-space: pre-wrap; word-break: break-all; border-bottom: 1px solid #e8e8e8; }
+.tool-result-inline { margin: 4px 8px 8px; padding: 8px; background: #f8f9fa; font-size: 11px; font-family: Menlo, monospace; white-space: pre-wrap; word-break: break-all; border-radius: 4px; }
 .typing { align-self: flex-start; color: #999; font-size: 13px; padding: 8px 0; }
 #input-area {
   display: flex; gap: 8px; padding: 12px 20px; background: #fff;
@@ -167,27 +187,142 @@ const sessionStatus = $('session-status')
 
 let streaming = false
 let streamingMsgEl = null
+let streamingTextEl = null
+let toolBlocks = null
 let unsubscribe = null
 
 function addMessage(role, text, extra) {
   const el = document.createElement('div')
   el.className = 'msg ' + role + (extra?.cls || '')
-  if (extra?.streaming) streamingMsgEl = el
-  el.textContent = text
+  if (extra?.streaming) {
+    streamingMsgEl = el
+    streamingTextEl = document.createElement('div')
+    el.appendChild(streamingTextEl)
+  } else {
+    el.innerHTML = marked.parse(text, { breaks: true, gfm: true })
+  }
   messagesEl.appendChild(el)
-  el.scrollIntoView({ behavior: 'smooth' })
+  scrollToBottomIfNeeded(true)
   return el
 }
 
 function updateStreamingMessage(text) {
-  if (streamingMsgEl) streamingMsgEl.textContent = text
+  if (streamingTextEl) {
+    streamingTextEl.innerHTML = marked.parse(text, { breaks: true, gfm: true })
+    scrollToBottomIfNeeded()
+  }
 }
 
 function finalizeStreaming() {
   if (streamingMsgEl) {
     streamingMsgEl.classList.remove('streaming')
     streamingMsgEl = null
+    streamingTextEl = null
   }
+}
+
+function isNearBottom(threshold) {
+  return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < (threshold || 100)
+}
+
+function scrollToBottomIfNeeded(force) {
+  if (force || isNearBottom()) {
+    messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'smooth' })
+  }
+}
+
+function appendToolCall(toolCallId, toolName, args) {
+  if (!streamingMsgEl) return
+  if (!toolBlocks) toolBlocks = new Map()
+
+  const container = document.createElement('div')
+  container.className = 'tool-block'
+
+  const header = document.createElement('div')
+  header.className = 'tool-header'
+
+  const nameEl = document.createElement('span')
+  nameEl.className = 'tool-name'
+  nameEl.textContent = toolName || 'tool'
+
+  const argsEl = document.createElement('span')
+  argsEl.className = 'tool-args'
+  argsEl.textContent = previewArgs(args)
+
+  const durationEl = document.createElement('span')
+  durationEl.className = 'tool-duration'
+
+  header.append(nameEl, argsEl, durationEl)
+  header.addEventListener('click', () => {
+    header.classList.toggle('expanded')
+    body.classList.toggle('hidden')
+  })
+  container.appendChild(header)
+
+  const body = document.createElement('div')
+  body.className = 'tool-body hidden'
+
+  const argsPre = document.createElement('pre')
+  argsPre.className = 'tool-args-full'
+  argsPre.textContent = JSON.stringify(args, null, 2)
+  body.appendChild(argsPre)
+
+  const resultEl = document.createElement('div')
+  resultEl.className = 'tool-result-container'
+  body.appendChild(resultEl)
+
+  container.appendChild(body)
+  streamingMsgEl.insertBefore(container, streamingTextEl)
+
+  toolBlocks.set(toolCallId, {
+    container, header, body, resultEl, durationEl,
+    startTime: Date.now(),
+    args,
+  })
+  scrollToBottomIfNeeded()
+}
+
+function previewArgs(args) {
+  if (!args || typeof args !== 'object') return ''
+  if (typeof args.command === 'string') return args.command.slice(0, 100)
+  if (typeof args.path === 'string') return args.path
+  if (typeof args.file_path === 'string') return args.file_path
+  if (typeof args.pattern === 'string') return args.pattern
+  if (typeof args.query === 'string') return args.query
+  return JSON.stringify(args).slice(0, 100)
+}
+
+function updateToolResult(toolCallId, partialResult) {
+  const block = toolBlocks?.get(toolCallId)
+  if (!block) return
+  block.resultEl.innerHTML = ''
+  const text = extractText({ content: partialResult?.content || [] })
+  const pre = document.createElement('pre')
+  pre.className = 'tool-result-inline'
+  pre.textContent = text || '(执行中...)'
+  block.resultEl.appendChild(pre)
+  scrollToBottomIfNeeded()
+}
+
+function finalizeToolResult(toolCallId, result, isError) {
+  const block = toolBlocks?.get(toolCallId)
+  if (!block) return
+  const duration = ((Date.now() - block.startTime) / 1000).toFixed(1)
+  block.durationEl.textContent = duration + 's'
+  if (isError) block.container.classList.add('error')
+  block.resultEl.innerHTML = ''
+  const text = extractText({ content: result?.content || [] })
+  const pre = document.createElement('pre')
+  pre.className = 'tool-result-inline'
+  if (text) {
+    pre.textContent = text
+  } else {
+    pre.textContent = '(无输出)'
+    pre.style.fontStyle = 'italic'
+    pre.style.opacity = '0.6'
+  }
+  block.resultEl.appendChild(pre)
+  scrollToBottomIfNeeded()
 }
 
 function setStreamingState(active) {
@@ -286,38 +421,41 @@ async function switchToChat(config) {
         break
       case 'agent_start':
         setStreamingState(true)
+        toolBlocks = new Map()
         break
       case 'agent_end':
         setStreamingState(false)
         finalizeStreaming()
+        toolBlocks = null
         break
-      case 'message_start':
+      case 'message_start': {
+        if (event.message?.role === 'user') break
+        if (!streamingMsgEl) {
+          addMessage('assistant', '', { cls: ' streaming', streaming: true })
+        }
         break
+      }
       case 'message_update': {
         if (event.message?.role !== 'assistant') break
         const text = extractText(event.message || event)
-        if (text) {
-          if (!streamingMsgEl) {
-            addMessage('assistant', text, { cls: ' streaming', streaming: true })
-          } else {
-            updateStreamingMessage(text)
-          }
-        }
+        if (text) updateStreamingMessage(text)
         break
       }
       case 'message_end': {
-        const text = extractText(event.message || event)
         if (event.message?.role === 'user') break
-        if (streamingMsgEl) {
-          if (text) updateStreamingMessage(text)
-          finalizeStreaming()
-        } else if (text) {
-          addMessage('assistant', text)
-        }
+        if (event.message?.role === 'toolResult') break
+        const text = extractText(event.message || event)
+        if (text) updateStreamingMessage(text)
         break
       }
       case 'tool_execution_start':
-        addMessage('tool-call', '🔧 执行: ' + (event.toolName || 'tool'))
+        appendToolCall(event.toolCallId, event.toolName, event.args)
+        break
+      case 'tool_execution_update':
+        updateToolResult(event.toolCallId, event.partialResult)
+        break
+      case 'tool_execution_end':
+        finalizeToolResult(event.toolCallId, event.result, event.isError)
         break
       case 'prompt_error':
         addMessage('error', '错误: ' + (event.errorMessage || '未知错误'))

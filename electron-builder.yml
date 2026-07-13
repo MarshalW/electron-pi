@@ -2,8 +2,14 @@ appId: com.electron.pi
 productName: ElectronPi
 directories:
   output: release
+asarUnpack:
+  - "**/icudtl*"
+  - "**/*.dat"
 mac:
   category: public.app-category.utilities
   target:
     - dmg
   identity: null
+win:
+  target:
+    - portable
