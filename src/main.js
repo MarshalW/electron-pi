@@ -138,6 +138,7 @@ ipcMain.handle('session:create', async (_event, config) => {
         getAllThemes: () => [], getTheme: () => undefined,
         setTheme: () => ({ success: false, error: 'UI not available' }),
         getToolsExpanded: () => false, setToolsExpanded: () => {},
+        clearMessages: () => sendToRenderer('pi:event', { type: 'ui:clear' }),
       },
     })
 

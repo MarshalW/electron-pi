@@ -574,6 +574,9 @@ async function switchToChat(config) {
       case 'ui:notify':
         showNotify(event.message, event.notifyType)
         break
+      case 'ui:clear':
+        messagesEl.innerHTML = ''
+        break
     }
   })
 }

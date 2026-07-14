@@ -43,4 +43,19 @@ export default function commandsExtension(pi) {
       }
     },
   });
+
+  pi.registerCommand("clear", {
+    description: "清空当前对话",
+    handler: async (_args, ctx) => {
+      ctx.ui.clearMessages()
+    },
+  });
+
+  pi.registerCommand("new", {
+    description: "新建 session 并清空对话",
+    handler: async (_args, ctx) => {
+      const result = await ctx.newSession()
+      if (!result.cancelled) ctx.ui.clearMessages()
+    },
+  });
 }
