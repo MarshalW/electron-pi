@@ -81,12 +81,13 @@ ipcMain.handle('session:create', async (_event, config) => {
 
 		// Load pageindex extension
 		const { default: pageindexExtension } = await import('./extensions/pageindex.js')
+		const { default: commandsExtension } = await import('./extensions/commands.js')
 
 		// 3. Create resource loader with extension
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: expandHome(config.cwd),
 			agentDir: getAgentDir(),
-			extensionFactories: [pageindexExtension],
+			extensionFactories: [pageindexExtension, commandsExtension],
 		})
 		await resourceLoader.reload()
 
