@@ -61,8 +61,9 @@ ipcMain.handle('session:create', async (_event, config) => {
     const {
       createAgentSession, SessionManager, DefaultResourceLoader,
       AuthStorage, InMemoryAuthStorageBackend, getAgentDir,
-      ModelRegistry, applyHttpProxySettings,
+      ModelRegistry,
     } = await import('@earendil-works/pi-coding-agent')
+    const { applyHttpProxySettings } = await import('@earendil-works/pi-coding-agent/dist/core/http-dispatcher.js')
 
     // 1. Auth: set runtime API key so PI SDK can authenticate with DeepSeek
     process.env.DEEPSEEK_API_KEY = config.apiKey
