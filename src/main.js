@@ -75,17 +75,32 @@ ipcMain.handle('session:create', async (_event, config) => {
     const model = modelRegistry.find(config.provider, config.model)
     if (!model) throw new Error(`模型 ${config.model} 未找到`)
 
-    // 3. Create AgentSession
-    const result = await createAgentSession({
-      model,
-      tools: ['read', 'bash', 'edit', 'write', 'grep', 'find'],
-      resourceLoader: new DefaultResourceLoader({
-        cwd: expandHome(config.cwd),
-        agentDir: getAgentDir(),
-      }),
-      sessionManager: SessionManager.inMemory(),
-      authStorage,
-    })
+		// Set windmill env vars for pageindex extension
+		process.env.WINDMILL_URL = config.windmillUrl || 'http://ape:3900'
+		process.env.WINDMILL_TOKEN = config.windmillToken || ''
+
+		// Load pageindex extension
+		const { default: pageindexExtension } = await import('./extensions/pageindex.js')
+
+		// 3. Create resource loader with extension
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: expandHome(config.cwd),
+			agentDir: getAgentDir(),
+			extensionFactories: [pageindexExtension],
+		})
+		await resourceLoader.reload()
+
+		// 4. Create AgentSession
+		const result = await createAgentSession({
+			model,
+			tools: [
+				'read', 'bash', 'edit', 'write', 'grep', 'find',
+				'qdrant_search', 'pageindex_content', 'pageindex_structure', 'es_search',
+			],
+			resourceLoader,
+			sessionManager: SessionManager.inMemory(),
+			authStorage,
+		})
 
     piSession = result.session
 

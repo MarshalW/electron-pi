@@ -2,5 +2,7 @@
   "provider": "deepseek",
   "model": "deepseek-v4-flash",
   "apiKey": "",
-  "cwd": ""
+  "cwd": "",
+  "windmillUrl": "http://ape:3900",
+  "windmillToken": ""
 }

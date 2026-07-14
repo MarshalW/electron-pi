@@ -5,6 +5,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
 <title>Electron Pi</title>
 <script src="vendor/marked.min.js"></script>
+<script src="vendor/katex/katex.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -59,6 +60,7 @@ header .hint { font-size: 12px; color: #999; -webkit-app-region: no-drag; }
 .msg.assistant li { word-break: break-word; overflow-wrap: break-word; }
 .msg.assistant p { margin: 4px 0; }
 .msg.assistant pre { overflow-x: auto; }
+.msg.assistant .math-block { overflow-x: auto; margin: 8px 0; }
 .msg.error { align-self: center; background: #fef0f0; color: #e74c3c; font-size: 13px; border: 1px solid #fde2e2; }
 .tool-block { margin: 4px 0 14px 0; border: 1px solid rgba(34,197,94,0.25); border-radius: 6px; overflow: hidden; font-size: 12px; }
 .tool-block.error { border-color: rgba(248,113,113,0.45); }
@@ -105,6 +107,7 @@ header .hint { font-size: 12px; color: #999; -webkit-app-region: no-drag; }
 #modal-cancel { flex: 1; padding: 11px; font-size: 14px; font-weight: 600; border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer; transition: background .2s; }
 #modal-cancel:hover { background: #f5f5f5; }
 </style>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
 </head>
 <body>
 
@@ -125,6 +128,14 @@ header .hint { font-size: 12px; color: #999; -webkit-app-region: no-drag; }
   <div class="form-group">
     <label>工作目录 (cwd)</label>
     <input id="input-cwd" placeholder="~/project">
+  </div>
+  <div class="form-group">
+    <label>Windmill URL</label>
+    <input id="input-windmill-url" value="http://ape:3900">
+  </div>
+  <div class="form-group">
+    <label>Windmill Token</label>
+    <input id="input-windmill-token" type="password" placeholder="wm_token_...">
   </div>
   <button class="btn-primary" id="btn-save-config">保存并开始</button>
   <div id="setup-error" class="error-msg"></div>
@@ -166,6 +177,14 @@ header .hint { font-size: 12px; color: #999; -webkit-app-region: no-drag; }
         <label>工作目录 (cwd)</label>
         <input id="modal-cwd" placeholder="~/project">
       </div>
+      <div class="form-group">
+        <label>Windmill URL</label>
+        <input id="modal-windmill-url" value="http://ape:3900">
+      </div>
+      <div class="form-group">
+        <label>Windmill Token</label>
+        <input id="modal-windmill-token" type="password" placeholder="wm_token_...">
+      </div>
       <div class="modal-actions">
         <button class="btn-primary" id="modal-save">保存并重连</button>
         <button id="modal-cancel">取消</button>
@@ -190,6 +209,57 @@ let streamingMsgEl = null
 let streamingTextEl = null
 let toolBlocks = null
 let unsubscribe = null
+
+marked.use({
+  extensions: [
+    {
+      name: 'inlineMath',
+      level: 'inline',
+      start(src) {
+        const a = src.indexOf('$'), b = src.indexOf('\\(');
+        if (a === -1 && b === -1) return -1;
+        return Math.min(a === -1 ? Infinity : a, b === -1 ? Infinity : b);
+      },
+      tokenizer(src) {
+        const m1 = src.match(/^\$([^$\n]+?)\$/);
+        if (m1) return { type: 'inlineMath', raw: m1[0], text: m1[1] };
+        const m2 = src.match(/^\\\(([\s\S]+?)\\\)/);
+        if (m2) return { type: 'inlineMath', raw: m2[0], text: m2[1] };
+      },
+      renderer(token) {
+        try {
+          return katex.renderToString(token.text, { throwOnError: false });
+        } catch {
+          return token.raw;
+        }
+      }
+    },
+    {
+      name: 'blockMath',
+      level: 'block',
+      start(src) {
+        const a = src.indexOf('$$'), b = src.indexOf('\\[');
+        if (a === -1 && b === -1) return -1;
+        return Math.min(a === -1 ? Infinity : a, b === -1 ? Infinity : b);
+      },
+      tokenizer(src) {
+        const m1 = src.match(/^\$\$([\s\S]+?)\$\$/);
+        if (m1) return { type: 'blockMath', raw: m1[0], text: m1[1].trim() };
+        const m2 = src.match(/^\\\[([\s\S]+?)\\\]/);
+        if (m2) return { type: 'blockMath', raw: m2[0], text: m2[1].trim() };
+      },
+      renderer(token) {
+        try {
+          return '<div class="math-block">' +
+            katex.renderToString(token.text, { displayMode: true, throwOnError: false }) +
+            '</div>';
+        } catch {
+          return token.raw;
+        }
+      }
+    }
+  ]
+});
 
 function addMessage(role, text, extra) {
   const el = document.createElement('div')
@@ -357,6 +427,8 @@ async function init() {
       $('input-provider').value = config.provider || 'deepseek'
       $('input-model').value = config.model || 'deepseek-v4-flash'
       $('input-cwd').value = config.cwd || ''
+      $('input-windmill-url').value = config.windmillUrl || 'http://ape:3900'
+      $('input-windmill-token').value = config.windmillToken || ''
     }
   } catch (err) {
     console.error('init failed:', err)
@@ -369,6 +441,8 @@ $('btn-save-config').addEventListener('click', async () => {
     model: $('input-model').value.trim(),
     apiKey: $('input-api-key').value.trim(),
     cwd: $('input-cwd').value.trim() || $('input-cwd').placeholder,
+    windmillUrl: $('input-windmill-url').value.trim() || 'http://ape:3900',
+    windmillToken: $('input-windmill-token').value.trim(),
   }
   if (!config.apiKey) {
     $('setup-error').textContent = '请输入 API Key'
@@ -503,6 +577,8 @@ $('btn-reconfigure').addEventListener('click', async () => {
   $('modal-provider').value = config?.provider || 'deepseek'
   $('modal-model').value = config?.model || 'deepseek-v4-flash'
   $('modal-cwd').value = config?.cwd || ''
+  $('modal-windmill-url').value = config?.windmillUrl || 'http://ape:3900'
+  $('modal-windmill-token').value = config?.windmillToken || ''
   $('modal-error').textContent = ''
   $('reconfig-modal').classList.remove('hidden')
   $('modal-api-key').focus()
@@ -518,6 +594,8 @@ $('modal-save').addEventListener('click', async () => {
     model: $('modal-model').value.trim(),
     apiKey: $('modal-api-key').value.trim(),
     cwd: $('modal-cwd').value.trim() || $('modal-cwd').placeholder,
+    windmillUrl: $('modal-windmill-url').value.trim() || 'http://ape:3900',
+    windmillToken: $('modal-windmill-token').value.trim(),
   }
   if (!config.apiKey) {
     $('modal-error').textContent = '请输入 API Key'
