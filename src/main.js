@@ -105,6 +105,47 @@ ipcMain.handle('session:create', async (_event, config) => {
 
     piSession = result.session
 
+    // Inject UI context so extension commands (e.g. /commands) can show dialogs
+    const pendingUI = new Map()
+    let uiId = 0
+
+    piSession.bindExtensions({
+      mode: 'tui',
+      uiContext: {
+        select: async (title, options) => new Promise((resolve) => {
+          const id = ++uiId
+          pendingUI.set(id, resolve)
+          sendToRenderer('pi:event', { type: 'ui:select', id, title, options })
+        }),
+        confirm: async (title, message) => new Promise((resolve) => {
+          const id = ++uiId
+          pendingUI.set(id, resolve)
+          sendToRenderer('pi:event', { type: 'ui:confirm', id, title, message })
+        }),
+        notify: (message, type) => {
+          sendToRenderer('pi:event', { type: 'ui:notify', message, notifyType: type || 'info' })
+        },
+        input: async () => undefined,
+        setStatus: () => {}, setWorkingMessage: () => {}, setWorkingVisible: () => {},
+        setWorkingIndicator: () => {}, setHiddenThinkingLabel: () => {},
+        setWidget: () => {}, setFooter: () => {}, setHeader: () => {}, setTitle: () => {},
+        pasteToEditor: () => {}, setEditorText: () => {}, getEditorText: () => "",
+        editor: async () => undefined, custom: async () => undefined,
+        onTerminalInput: () => () => {},
+        addAutocompleteProvider: () => {}, setEditorComponent: () => {},
+        getEditorComponent: () => undefined,
+        get theme() { return { colors: {}, styles: {} } },
+        getAllThemes: () => [], getTheme: () => undefined,
+        setTheme: () => ({ success: false, error: 'UI not available' }),
+        getToolsExpanded: () => false, setToolsExpanded: () => {},
+      },
+    })
+
+    ipcMain.handle('ui:response', (_event, { id, value }) => {
+      const resolve = pendingUI.get(id)
+      if (resolve) { resolve(value); pendingUI.delete(id) }
+    })
+
     // 3. Forward events to renderer
     piSession.subscribe((event) => sendToRenderer('pi:event', event))
     sendToRenderer('pi:event', { type: 'agent_session_ready', sessionId: piSession.sessionId })

@@ -106,6 +106,25 @@ header .hint { font-size: 12px; color: #999; -webkit-app-region: no-drag; }
 .modal-actions .btn-primary { flex: 1; }
 #modal-cancel { flex: 1; padding: 11px; font-size: 14px; font-weight: 600; border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer; transition: background .2s; }
 #modal-cancel:hover { background: #f5f5f5; }
+
+/* UI extension modal */
+#ui-modal { z-index: 200; }
+.ui-option-list { list-style: none; max-height: 280px; overflow-y: auto; border: 1px solid #e8e8e8; border-radius: 8px; }
+.ui-option-list li { padding: 8px 12px; cursor: pointer; font-size: 14px; }
+.ui-option-list li:hover { background: #f0f7ff; }
+.ui-option-list .group-label { font-weight: 600; color: #888; cursor: default; padding: 8px 12px 4px; }
+.ui-option-list .group-label:hover { background: none; }
+#ui-modal-msg { margin: 8px 0; font-size: 14px; }
+.ui-btn-cancel { padding: 9px 18px; font-size: 13px; border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer; }
+.ui-btn-cancel:hover { background: #f5f5f5; }
+.ui-btn-ok { padding: 9px 18px; font-size: 13px; border: none; border-radius: 8px; background: #4a90d9; color: #fff; cursor: pointer; }
+.ui-btn-ok:hover { background: #357abd; }
+/* Toast notify */
+.ui-toast { position: fixed; bottom: 60px; right: 20px; padding: 8px 16px; border-radius: 8px; font-size: 13px; color: #fff; z-index: 300; animation: uiToastIn .2s ease; pointer-events: none; }
+.ui-toast.info { background: #333; }
+.ui-toast.warning { background: #d97706; }
+.ui-toast.error { background: #dc2626; }
+@keyframes uiToastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 </style>
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 </head>
@@ -190,6 +209,16 @@ header .hint { font-size: 12px; color: #999; -webkit-app-region: no-drag; }
         <button id="modal-cancel">取消</button>
       </div>
       <div id="modal-error" class="error-msg"></div>
+    </div>
+  </div>
+
+  <!-- UI Select / Confirm Modal (for extension commands like /commands) -->
+  <div id="ui-modal" class="hidden">
+    <div class="modal-backdrop" id="ui-modal-backdrop"></div>
+    <div class="modal-content">
+      <h2 id="ui-modal-title"></h2>
+      <div id="ui-modal-body"></div>
+      <div class="modal-actions" id="ui-modal-actions"></div>
     </div>
   </div>
 </div>
@@ -536,6 +565,15 @@ async function switchToChat(config) {
         setStreamingState(false)
         finalizeStreaming()
         break
+      case 'ui:select':
+        showSelectModal(event.id, event.title, event.options)
+        break
+      case 'ui:confirm':
+        showConfirmModal(event.id, event.title, event.message)
+        break
+      case 'ui:notify':
+        showNotify(event.message, event.notifyType)
+        break
     }
   })
 }
@@ -547,6 +585,107 @@ function showSetup() {
   $('btn-save-config').disabled = false
   $('btn-save-config').textContent = '保存并开始'
 }
+
+// --- Extension UI: select / confirm / notify ---
+
+function showSelectModal(id, title, options) {
+  currentUIRequestId = id
+  $('ui-modal-title').textContent = title
+  const body = $('ui-modal-body')
+  const actions = $('ui-modal-actions')
+  body.innerHTML = ''
+  actions.innerHTML = ''
+
+  const ul = document.createElement('ul')
+  ul.className = 'ui-option-list'
+  let selectedValue = undefined
+
+  for (const opt of options) {
+    const li = document.createElement('li')
+    li.textContent = opt
+    if (opt.startsWith('---')) {
+      li.className = 'group-label'
+    } else {
+      li.addEventListener('click', () => {
+        selectedValue = opt
+        closeUIModal()
+        window.pi.sendUIResponse({ id, value: opt })
+      })
+    }
+    ul.appendChild(li)
+  }
+  body.appendChild(ul)
+
+  const cancelBtn = document.createElement('button')
+  cancelBtn.className = 'ui-btn-cancel'
+  cancelBtn.textContent = '取消'
+  cancelBtn.addEventListener('click', () => {
+    closeUIModal()
+    window.pi.sendUIResponse({ id, value: undefined })
+  })
+  actions.appendChild(cancelBtn)
+
+  $('ui-modal').classList.remove('hidden')
+}
+
+function showConfirmModal(id, title, message) {
+  currentUIRequestId = id
+  $('ui-modal-title').textContent = title
+  const body = $('ui-modal-body')
+  const actions = $('ui-modal-actions')
+  body.innerHTML = ''
+  actions.innerHTML = ''
+
+  const msg = document.createElement('div')
+  msg.id = 'ui-modal-msg'
+  msg.textContent = message
+  body.appendChild(msg)
+
+  const cancelBtn = document.createElement('button')
+  cancelBtn.className = 'ui-btn-cancel'
+  cancelBtn.textContent = '取消'
+  cancelBtn.addEventListener('click', () => {
+    closeUIModal()
+    window.pi.sendUIResponse({ id, value: false })
+  })
+
+  const okBtn = document.createElement('button')
+  okBtn.className = 'ui-btn-ok'
+  okBtn.textContent = '确定'
+  okBtn.addEventListener('click', () => {
+    closeUIModal()
+    window.pi.sendUIResponse({ id, value: true })
+  })
+
+  actions.appendChild(cancelBtn)
+  actions.appendChild(okBtn)
+  $('ui-modal').classList.remove('hidden')
+}
+
+function closeUIModal() {
+  currentUIRequestId = null
+  $('ui-modal').classList.add('hidden')
+}
+
+function showNotify(message, type) {
+  const existing = document.querySelector('.ui-toast')
+  if (existing) existing.remove()
+  const toast = document.createElement('div')
+  toast.className = 'ui-toast ' + (type || 'info')
+  toast.textContent = message
+  document.body.appendChild(toast)
+  setTimeout(() => { toast.remove() }, 3000)
+}
+
+let currentUIRequestId = null
+
+$('ui-modal-backdrop').addEventListener('click', () => {
+  if (currentUIRequestId !== null) {
+    window.pi.sendUIResponse({ id: currentUIRequestId, value: undefined })
+    currentUIRequestId = null
+  }
+  closeUIModal()
+})
 
 btnSend.addEventListener('click', sendMessage)
 chatInput.addEventListener('keydown', (e) => {

@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('pi', {
     ipcRenderer.on('pi:event', handler)
     return () => ipcRenderer.removeListener('pi:event', handler)
   },
+  sendUIResponse: (data) => ipcRenderer.invoke('ui:response', data),
 })
