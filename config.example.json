@@ -3,6 +3,7 @@
   "model": "deepseek-v4-flash",
   "apiKey": "",
   "cwd": "",
+  "httpProxy": "",
   "windmillUrl": "http://ape:3900",
   "windmillToken": ""
 }

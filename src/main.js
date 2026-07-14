@@ -61,7 +61,7 @@ ipcMain.handle('session:create', async (_event, config) => {
     const {
       createAgentSession, SessionManager, DefaultResourceLoader,
       AuthStorage, InMemoryAuthStorageBackend, getAgentDir,
-      ModelRegistry,
+      ModelRegistry, applyHttpProxySettings,
     } = await import('@earendil-works/pi-coding-agent')
 
     // 1. Auth: set runtime API key so PI SDK can authenticate with DeepSeek
@@ -69,6 +69,9 @@ ipcMain.handle('session:create', async (_event, config) => {
     const authStorage = new AuthStorage(new InMemoryAuthStorageBackend())
     await authStorage.reload()
     authStorage.setRuntimeApiKey(config.provider, config.apiKey)
+
+    // 1b. HTTP proxy
+    applyHttpProxySettings(config.httpProxy)
 
     // 2. Resolve full model definition from registry
     const modelRegistry = ModelRegistry.inMemory(authStorage)
