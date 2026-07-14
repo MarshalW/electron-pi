@@ -5,6 +5,8 @@ const os = require('os')
 
 let mainWindow = null
 let piSession = null
+let pendingUI = new Map()
+let uiId = 0
 
 function getConfigPath() {
   if (!app.isPackaged) {
@@ -112,9 +114,9 @@ ipcMain.handle('session:create', async (_event, config) => {
 
     piSession = result.session
 
-    // Inject UI context so extension commands (e.g. /commands) can show dialogs
-    const pendingUI = new Map()
-    let uiId = 0
+    // Reset pending UI from previous session (if any)
+    pendingUI = new Map()
+    uiId = 0
 
     piSession.bindExtensions({
       mode: 'tui',
@@ -149,11 +151,6 @@ ipcMain.handle('session:create', async (_event, config) => {
       },
     })
 
-    ipcMain.handle('ui:response', (_event, { id, value }) => {
-      const resolve = pendingUI.get(id)
-      if (resolve) { resolve(value); pendingUI.delete(id) }
-    })
-
     // 3. Forward events to renderer
     piSession.subscribe((event) => sendToRenderer('pi:event', event))
     sendToRenderer('pi:event', { type: 'agent_session_ready', sessionId: piSession.sessionId })
@@ -162,6 +159,12 @@ ipcMain.handle('session:create', async (_event, config) => {
   } catch (err) {
     return { ok: false, error: err.message }
   }
+})
+
+// Handle UI response from renderer (registered once at module level)
+ipcMain.handle('ui:response', (_event, { id, value }) => {
+  const resolve = pendingUI.get(id)
+  if (resolve) { resolve(value); pendingUI.delete(id) }
 })
 
 ipcMain.handle('session:send', async (_event, message) => {
